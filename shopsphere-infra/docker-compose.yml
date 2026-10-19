@@ -1,4 +1,18 @@
+
 services:
+  postgres:
+    image: postgres:18
+    container_name: shopsphere-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${DB_USERNAME:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in shopsphere-infra/.env}
+      POSTGRES_DB: shopsphere_product
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./init-databases.sql:/docker-entrypoint-initdb.d/init-databases.sql:ro
+
   kafka:
     image: apache/kafka:4.1.0
     container_name: shopsphere-kafka
@@ -7,10 +21,88 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_LISTENERS: INTERNAL://:19092,EXTERNAL://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:19092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+
+  service-registry:
+    build:
+      context: ../shopsphere-service-registry/shopsphere-service-registry
+    ports:
+      - "8761:8761"
+
+  product-service:
+    build:
+      context: ../shopsphere-product-service/shopsphere-product-service
+    ports:
+      - "8081:8081"
+    environment:
+      SERVER_PORT: 8081
+      DB_URL: jdbc:postgresql://postgres:5432/shopsphere_product
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in shopsphere-infra/.env}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      EUREKA_URL: http://service-registry:8761/eureka/
+    depends_on:
+      - postgres
+      - kafka
+      - service-registry
+
+  auth-service:
+    build:
+      context: ../shopsphere-auth-service
+    ports:
+      - "8083:8083"
+    environment:
+      SERVER_PORT: 8083
+      DB_URL: jdbc:postgresql://postgres:5432/shopsphere_auth
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in shopsphere-infra/.env}
+      EUREKA_URL: http://service-registry:8761/eureka/
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in shopsphere-infra/.env}
+    depends_on:
+      - postgres
+      - service-registry
+
+  inventory-service:
+    build:
+      context: ../shopsphere-inventory-service
+    ports:
+      - "8084:8084"
+    environment:
+      SERVER_PORT: 8084
+      DB_URL: jdbc:postgresql://postgres:5432/shopsphere_inventory
+      DB_USERNAME: ${DB_USERNAME:-postgres}
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in shopsphere-infra/.env}
+      KAFKA_BOOTSTRAP_SERVERS: kafka:19092
+      EUREKA_URL: http://service-registry:8761/eureka/
+    depends_on:
+      - postgres
+      - kafka
+      - service-registry
+
+  api-gateway:
+    build:
+      context: ../shopsphere-api-gateway/shopsphere-api-gateway
+    ports:
+      - "8085:8085"
+    environment:
+      SERVER_PORT: 8085
+      EUREKA_URL: http://service-registry:8761/eureka/
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in shopsphere-infra/.env}
+    depends_on:
+      - service-registry
+      - auth-service
+      - product-service
+
+volumes:
+  postgres-data:
+  kafka-data:

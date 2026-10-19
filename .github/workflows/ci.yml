@@ -1,5 +1,5 @@
 
-name: ShopSphere CI
+name: ShopSphere CI/CD
 
 on:
   push:
@@ -9,6 +9,7 @@ on:
 
 jobs:
   build-and-test:
+    name: Build and test - ${{ matrix.project }}
     runs-on: ubuntu-latest
 
     strategy:
@@ -53,14 +54,68 @@ jobs:
           java-version: '21'
           cache: maven
 
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
       - name: Create service databases
         run: |
           PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "CREATE DATABASE shopsphere_product;"
           PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "CREATE DATABASE shopsphere_auth;"
           PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "CREATE DATABASE shopsphere_inventory;"
-        env:
-          PGPASSWORD: postgres
 
       - name: Build and test
         working-directory: ${{ matrix.project }}
         run: mvn --batch-mode --no-transfer-progress verify
+
+  publish-docker-images:
+    name: Publish Docker image - ${{ matrix.service.name }}
+    needs: build-and-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - name: shopsphere
+            context: ./shopsphere
+            image: shopsphere
+          - name: shopsphere-auth-service
+            context: ./shopsphere-auth-service
+            image: shopsphere-auth-service
+          - name: shopsphere-inventory-service
+            context: ./shopsphere-inventory-service
+            image: shopsphere-inventory-service
+          - name: shopsphere-product-service
+            context: ./shopsphere-product-service/shopsphere-product-service
+            image: shopsphere-product-service
+          - name: shopsphere-api-gateway
+            context: ./shopsphere-api-gateway/shopsphere-api-gateway
+            image: shopsphere-api-gateway
+          - name: shopsphere-service-registry
+            context: ./shopsphere-service-registry/shopsphere-service-registry
+            image: shopsphere-service-registry
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.service.context }}
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service.image }}:${{ github.sha }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/${{ matrix.service.image }}:latest

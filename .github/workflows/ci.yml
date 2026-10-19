@@ -22,21 +22,6 @@ jobs:
           - shopsphere-api-gateway/shopsphere-api-gateway
           - shopsphere-service-registry/shopsphere-service-registry
 
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Java 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: maven
-
-      - name: Build and test
-        working-directory: ${{ matrix.project }}
-        run: mvn --batch-mode --no-transfer-progress verify
-
     services:
       postgres:
         image: postgres:18
@@ -54,4 +39,28 @@ jobs:
 
     env:
       DB_USERNAME: postgres
-      DB_PASSWORD: postgres@123
+      DB_PASSWORD: postgres
+      JWT_SECRET: ci-only-secret-key-for-shopsphere-testing-123456789
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Create service databases
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "CREATE DATABASE shopsphere_product;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "CREATE DATABASE shopsphere_auth;"
+          PGPASSWORD=postgres psql -h localhost -U postgres -d postgres -c "CREATE DATABASE shopsphere_inventory;"
+        env:
+          PGPASSWORD: postgres
+
+      - name: Build and test
+        working-directory: ${{ matrix.project }}
+        run: mvn --batch-mode --no-transfer-progress verify

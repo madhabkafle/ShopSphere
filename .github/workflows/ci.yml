@@ -1,0 +1,38 @@
+
+name: ShopSphere CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        project:
+          - shopsphere
+          - shopsphere-auth-service
+          - shopsphere-inventory-service
+          - shopsphere-product-service/shopsphere-product-service
+          - shopsphere-api-gateway/shopsphere-api-gateway
+          - shopsphere-service-registry/shopsphere-service-registry
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Build and test
+        working-directory: ${{ matrix.project }}
+        run: mvn --batch-mode --no-transfer-progress verify

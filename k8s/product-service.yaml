@@ -1,0 +1,53 @@
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: product-service
+  namespace: shopsphere
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: product-service
+  template:
+    metadata:
+      labels:
+        app: product-service
+    spec:
+      containers:
+        - name: product-service
+          image: madhab05/shopsphere-product-service:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8081
+          env:
+            - name: SPRING_DATASOURCE_URL
+              value: "jdbc:postgresql://postgres:5432/shopsphere_product"
+
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: username
+
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret
+                  key: password
+
+            - name: EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE
+              value: "http://service-registry:8761/eureka/"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: product-service
+  namespace: shopsphere
+spec:
+  type: ClusterIP
+  selector:
+    app: product-service
+  ports:
+    - port: 8081
+      targetPort: 8081
